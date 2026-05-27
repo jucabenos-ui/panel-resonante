@@ -2,116 +2,198 @@ import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
 
-# ── Configuración de la página ──────────────────────────────────────────────
-st.set_page_config(
-    page_title="Panel Resonante — Análisis Acústico",
-    page_icon="🔊",
-    layout="centered"
-)
+st.set_page_config(page_title="Diseño de Panel Resonante")
 
-st.title("🔊 Sistema de Análisis de Panel Resonante")
-st.markdown(
-    "Ingresa las dimensiones de tu recinto para obtener el coeficiente "
-    "de absorción recomendado y los parámetros del panel resonante."
-)
+st.title("🔊 Diseño Inteligente de Panel Resonante")
 
-# ── Módulo 1: Entrada de datos ───────────────────────────────────────────────
+# =========================================================
+# DATOS DEL RECINTO
+# =========================================================
+
 st.header("📐 Dimensiones del recinto")
+
 col1, col2, col3 = st.columns(3)
+
 with col1:
-    Lx = st.number_input("Largo (m)", min_value=1.0, max_value=30.0, value=5.0, step=0.1)
+    Lx = st.number_input("Largo (m)", 1.0, 30.0, 5.0)
+
 with col2:
-    Ly = st.number_input("Ancho (m)", min_value=1.0, max_value=30.0, value=4.0, step=0.1)
+    Ly = st.number_input("Ancho (m)", 1.0, 30.0, 4.0)
+
 with col3:
-    Lz = st.number_input("Altura (m)", min_value=1.0, max_value=10.0, value=2.8, step=0.1)
+    Lz = st.number_input("Altura (m)", 1.0, 10.0, 2.8)
 
-# ── Módulo 2: Almacenar — Análisis modal ─────────────────────────────────────
-def calcular_frecuencias_modales(Lx, Ly, Lz, c=343, n_max=3):
-    """Calcula frecuencias modales axiales, tangenciales y oblicuas."""
-    freqs = []
-    for nx in range(0, n_max + 1):
-        for ny in range(0, n_max + 1):
-            for nz in range(0, n_max + 1):
-                if nx == 0 and ny == 0 and nz == 0:
+# =========================================================
+# MODOS DEL RECINTO
+# =========================================================
+
+def calcular_modos(Lx, Ly, Lz, c=343, n_max=4):
+
+    modos = []
+
+    for nx in range(n_max + 1):
+        for ny in range(n_max + 1):
+            for nz in range(n_max + 1):
+
+                if nx == ny == nz == 0:
                     continue
-                f = (c / 2) * np.sqrt((nx/Lx)**2 + (ny/Ly)**2 + (nz/Lz)**2)
-                freqs.append(round(f, 2))
-    return sorted(set(freqs))
 
-# ── Módulo 3: Procesar — Diseño del panel ────────────────────────────────────
-def calcular_panel(f_objetivo, d=0.05, rho=1.21, c=343):
-    """
-    Estima masa superficial y coeficiente de absorción del panel.
-    d   = profundidad de la cavidad en metros (default 5 cm)
-    rho = densidad del aire (kg/m³)
-    """
-    # Rigidez del aire en la cavidad: k = rho * c² / d
-    k = (rho * c**2) / d
-    # Masa superficial para resonar en f_objetivo: m = k / (2π·f)²
-    m = k / (2 * np.pi * f_objetivo)**2
-    # Coeficiente de absorción aproximado (modelo simplificado)
-    alpha = min(0.95, 0.3 + 0.65 * np.exp(-((f_objetivo - 80) / 60)**2))
-    return round(m, 3), round(k, 2), round(alpha, 3)
+                f = (c/2)*np.sqrt(
+                    (nx/Lx)**2 +
+                    (ny/Ly)**2 +
+                    (nz/Lz)**2
+                )
 
-# ── Botón de análisis ─────────────────────────────────────────────────────────
-if st.button("🔍 Analizar recinto", type="primary"):
-    freqs = calcular_frecuencias_modales(Lx, Ly, Lz)
-    freqs_bajas = [f for f in freqs if f <= 300]
+                # Clasificación
+                ceros = [nx, ny, nz].count(0)
 
-    # ── Módulo 2 output ───────────────────────────────────────────────────────
-    st.header("📊 Análisis modal del recinto")
+                if ceros == 2:
+                    tipo = "Axial"
 
-    if freqs_bajas:
-        st.warning(f"⚠️ Se detectaron {len(freqs_bajas)} modos en bajas frecuencias (≤ 300 Hz).")
-        f_problema = freqs_bajas[0]
-        st.write(f"**Frecuencia modal más crítica:** {f_problema} Hz")
+                elif ceros == 1:
+                    tipo = "Tangencial"
 
-        # Gráfica de frecuencias modales
-        fig, ax = plt.subplots(figsize=(8, 3))
-        ax.stem(
-            freqs_bajas,
-            np.ones(len(freqs_bajas)),
-            linefmt="steelblue",
-            markerfmt="o",
-            basefmt=" "
-        )
-        ax.set_xlabel("Frecuencia (Hz)")
-        ax.set_title("Modos propios del recinto ≤ 300 Hz")
-        ax.set_yticks([])
-        ax.grid(axis="x", alpha=0.3)
-        st.pyplot(fig)
+                else:
+                    tipo = "Oblicuo"
 
-        # ── Módulo 3 output ───────────────────────────────────────────────────
-        st.header("🛠️ Propuesta de panel resonante")
-        masa, rigidez, alpha = calcular_panel(f_problema)
+                modos.append({
+                    "frecuencia": round(f,2),
+                    "tipo": tipo,
+                    "modo": (nx, ny, nz)
+                })
 
-        col_a, col_b, col_c = st.columns(3)
-        col_a.metric("Frecuencia objetivo", f"{f_problema} Hz")
-        col_b.metric("Masa superficial (m)", f"{masa} kg/m²")
-        col_c.metric("Coeficiente de absorción (α)", f"{alpha}")
+    return modos
 
-        # ── Módulo 4: Interpretar ─────────────────────────────────────────────
-        st.header("📋 Interpretación del diseño")
-        if alpha >= 0.7:
-            st.success(
-                f"✅ Panel con α = {alpha} — Alta absorción. "
-                f"Recomendado para frecuencias problemáticas en {f_problema} Hz."
-            )
-        elif alpha >= 0.4:
-            st.info(
-                f"ℹ️ Panel con α = {alpha} — Absorción moderada. "
-                f"Considerar aumentar la profundidad de cavidad."
-            )
-        else:
-            st.warning(
-                f"⚠️ Panel con α = {alpha} — Absorción baja. "
-                f"Se recomienda revisar el material o la cavidad."
-            )
+# =========================================================
+# DISEÑO DEL PANEL
+# =========================================================
 
-        st.markdown("---")
-        st.markdown(f"**Material sugerido:** Madera MDF de {round(masa*10, 1)} mm de espesor")
-        st.markdown(f"**Profundidad de cavidad:** 5 cm (ajustable para afinar frecuencia)")
-        st.markdown(f"**Rigidez del sistema (k):** {rigidez} N/m²")
+def disenar_panel(f_obj):
+
+    materiales = {
+        "MDF 3 mm": 2.1,
+        "MDF 6 mm": 4.2,
+        "Triplex 4 mm": 2.5,
+        "Drywall": 8.5
+    }
+
+    mejor = None
+    error_min = 999
+
+    for material, masa in materiales.items():
+
+        d = (60/f_obj)**2 / masa
+
+        fr = 60 / np.sqrt(masa*d)
+
+        error = abs(fr - f_obj)
+
+        if error < error_min:
+
+            error_min = error
+
+            mejor = {
+                "material": material,
+                "masa": round(masa,2),
+                "cavidad": round(d*100,1),
+                "fr": round(fr,2)
+            }
+
+    return mejor
+
+# =========================================================
+# ANÁLISIS
+# =========================================================
+
+if st.button("🔍 Analizar"):
+
+    modos = calcular_modos(Lx, Ly, Lz)
+
+    modos_bajos = [m for m in modos if m["frecuencia"] <= 300]
+
+    axial = [m for m in modos_bajos if m["tipo"] == "Axial"]
+
+    if axial:
+
+        modo_critico = axial[0]
 
     else:
-        st.success("✅ No se detectaron acumulaciones críticas en bajas frecuencias.")
+
+        modo_critico = modos_bajos[0]
+
+    fcrit = modo_critico["frecuencia"]
+
+    panel = disenar_panel(fcrit)
+
+    st.header("📊 Modo crítico")
+
+    st.write(f"Frecuencia: {fcrit} Hz")
+    st.write(f"Tipo: {modo_critico['tipo']}")
+    st.write(f"Modo: {modo_critico['modo']}")
+
+    # =====================================================
+    # GRÁFICA
+    # =====================================================
+
+    fig, ax = plt.subplots(figsize=(8,3))
+
+    frecuencias = [m["frecuencia"] for m in modos_bajos]
+
+    ax.stem(frecuencias,
+            np.ones(len(frecuencias)))
+
+    ax.set_xlabel("Frecuencia (Hz)")
+    ax.set_yticks([])
+    ax.grid(True)
+
+    st.pyplot(fig)
+
+    # =====================================================
+    # PANEL
+    # =====================================================
+
+    st.header("🛠️ Diseño recomendado")
+
+    st.metric("Frecuencia objetivo", f"{fcrit} Hz")
+
+    st.metric("Material", panel["material"])
+
+    st.metric("Masa superficial",
+              f"{panel['masa']} kg/m²")
+
+    st.metric("Profundidad cavidad",
+              f"{panel['cavidad']} cm")
+
+    # =====================================================
+    # FORMA
+    # =====================================================
+
+    if modo_critico["tipo"] == "Axial":
+        forma = "Rectangular"
+
+    elif modo_critico["tipo"] == "Tangencial":
+        forma = "Cuadrado"
+
+    else:
+        forma = "Ranurado"
+
+    st.header("📐 Geometría recomendada")
+
+    st.success(f"Forma recomendada: {forma}")
+
+    # =====================================================
+    # UBICACIÓN
+    # =====================================================
+
+    st.header("📍 Ubicación sugerida")
+
+    nx, ny, nz = modo_critico["modo"]
+
+    if nx != 0:
+        st.write("Instalar sobre pared frontal o trasera.")
+
+    elif ny != 0:
+        st.write("Instalar sobre paredes laterales.")
+
+    else:
+        st.write("Instalar en techo o piso.")
