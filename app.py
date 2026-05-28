@@ -1,6 +1,7 @@
 import streamlit as st
 import numpy as np
-import plotly.graph_objects as go
+import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
 
 # =========================================================
 # CONFIGURACIÓN
@@ -315,51 +316,40 @@ if st.button("🔍 Analizar recinto y diseñar panel", type="primary"):
         f"({len(modos_axiales)} axiales)"
     )
 
-    # --- Gráfica modal con Plotly (sin matplotlib) ---
+    # --- Gráfica modal con matplotlib ---
     colores_tipo = {
-        "Axial":       "#e74c3c",
-        "Tangencial":  "#3498db",
-        "Oblicuo":     "#2ecc71",
+        "Axial":      "#e74c3c",
+        "Tangencial": "#3498db",
+        "Oblicuo":    "#2ecc71",
     }
 
-    fig = go.Figure()
+    fig, ax = plt.subplots(figsize=(9, 2.8))
     leyendas_vistas = set()
 
     for m in modos_bajos:
         t     = m["tipo"]
         color = colores_tipo[t]
-        mostrar_leyenda = t not in leyendas_vistas
+        label = t if t not in leyendas_vistas else "_nolegend_"
         leyendas_vistas.add(t)
+        ax.vlines(m["frecuencia"], 0, 1, colors=color, linewidth=1.8, label=label)
 
-        fig.add_trace(go.Scatter(
-            x=[m["frecuencia"], m["frecuencia"]],
-            y=[0, 1],
-            mode="lines",
-            line=dict(color=color, width=2),
-            name=t,
-            showlegend=mostrar_leyenda,
-            legendgroup=t,
-        ))
-
-    fig.add_vline(
-        x=frecuencia_critica,
-        line_dash="dash",
-        line_color="orange",
-        line_width=2,
-        annotation_text=f"  Crítico: {frecuencia_critica} Hz",
-        annotation_font_color="orange",
+    ax.axvline(
+        frecuencia_critica,
+        color="orange", linestyle="--", linewidth=2,
+        label=f"Crítico: {frecuencia_critica} Hz"
     )
 
-    fig.update_layout(
-        title="Distribución de modos propios (≤ 300 Hz)",
-        xaxis_title="Frecuencia (Hz)",
-        yaxis=dict(showticklabels=False, range=[0, 1.3], title=""),
-        height=260,
-        margin=dict(t=45, b=40, l=20, r=20),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
-    )
+    ax.set_title("Distribución de modos propios (≤ 300 Hz)", fontsize=11)
+    ax.set_xlabel("Frecuencia (Hz)")
+    ax.set_yticks([])
+    ax.set_xlim(0, 300)
+    ax.set_ylim(0, 1.3)
+    ax.grid(True, axis="x", alpha=0.25)
+    ax.legend(loc="upper right", fontsize=9, framealpha=0.7)
+    plt.tight_layout()
 
-    st.plotly_chart(fig, use_container_width=True)
+    st.pyplot(fig)
+    plt.close(fig)
 
     # ==========================================================
     # DISEÑO DEL PANEL
@@ -468,4 +458,5 @@ if st.button("🔍 Analizar recinto y diseñar panel", type="primary"):
         "- El relleno de lana introduce **amortiguamiento** viscoso.\n\n"
         "El sistema entra en resonancia cerca de la frecuencia modal crítica y convierte "
         "energía acústica en calor, reduciendo la acumulación de presión en esa frecuencia."
+    )
     )
