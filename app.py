@@ -96,6 +96,15 @@ def calcular_modos(Lx, Ly, Lz, c=343, n_max=5):
 
 
 def disenar_panel(f_obj, usar_relleno):
+    # Para frecuencias muy bajas (<50 Hz) la cavidad física necesaria es mayor,
+    # por eso ampliamos el rango válido dinámicamente.
+    if f_obj < 50:
+        rango_min, rango_max, optimo = 8.0, 30.0, 20.0
+    elif f_obj < 80:
+        rango_min, rango_max, optimo = 6.0, 22.0, 12.0
+    else:
+        rango_min, rango_max, optimo = 4.0, 18.0, 10.0
+
     candidatos = []
     for nombre, props in MATERIALES.items():
         masa = props["masa"]
@@ -106,9 +115,9 @@ def disenar_panel(f_obj, usar_relleno):
             coef_base = 0.75
         else:
             coef_base = 0.50
-        coef_abs = round(min(coef_base + 0.12 * min(d_cm / 15.0, 1.0), 0.95), 2)
-        score = abs(d_cm - 10.0)
-        valido = 4.0 <= d_cm <= 18.0
+        coef_abs = round(min(coef_base + 0.12 * min(d_cm / optimo, 1.0), 0.95), 2)
+        score = abs(d_cm - optimo)
+        valido = rango_min <= d_cm <= rango_max
         candidatos.append({
             "material": nombre,
             "masa": round(masa, 2),
@@ -121,7 +130,8 @@ def disenar_panel(f_obj, usar_relleno):
         })
     validos = [c for c in candidatos if c["valido"]]
     if not validos:
-        validos = candidatos
+        # Fallback: el material con menor masa (cavidad más grande = más realista para bajas f)
+        validos = sorted(candidatos, key=lambda x: x["masa"])
     return sorted(validos, key=lambda x: x["score"])[0]
 
 
@@ -267,22 +277,30 @@ if st.button("🔍 Analizar recinto y diseñar panel", type="primary"):
 
     st.header("🛠️ Diseño del panel resonante")
 
-    c1, c2, c3 = st.columns(3)
-
-    with c1:
-        st.metric("Material",         panel["material"])
-        st.metric("Masa superficial", f"{panel['masa']} kg/m2")
-        st.metric("Costo relativo",   panel["costo"])
-
-    with c2:
-        st.metric("Frecuencia de resonancia", f"{panel['fr']} Hz")
-        st.metric("Profundidad de cavidad",   f"{panel['cavidad_cm']} cm")
-        st.metric("Coef. de absorcion",       panel["absorcion"])
-
-    with c3:
-        st.metric("Geometria",            dims["tipo"])
-        st.metric("Paneles recomendados", f"{n_pan} unidades")
-        st.metric("Ubicacion",            ubicacion)
+    st.table({
+        "Parámetro": [
+            "Material",
+            "Masa superficial",
+            "Costo relativo",
+            "Frecuencia de resonancia",
+            "Profundidad de cavidad",
+            "Coef. de absorción",
+            "Geometría",
+            "Paneles recomendados",
+            "Ubicación",
+        ],
+        "Valor": [
+            panel["material"],
+            f"{panel['masa']} kg/m²",
+            panel["costo"],
+            f"{panel['fr']} Hz",
+            f"{panel['cavidad_cm']} cm",
+            str(panel["absorcion"]),
+            dims["tipo"],
+            f"{n_pan} unidades",
+            ubicacion,
+        ],
+    })
 
     # ----------------------------------------------------------
     # DIMENSIONES
@@ -291,10 +309,10 @@ if st.button("🔍 Analizar recinto y diseñar panel", type="primary"):
     st.subheader("📏 Dimensiones del panel")
 
     dim_items = [(k, v) for k, v in dims.items() if k != "tipo"]
-    dcols = st.columns(len(dim_items))
-
-    for i, (label, valor) in enumerate(dim_items):
-        dcols[i].metric(label, valor)
+    st.table({
+        "Dimensión": [k for k, v in dim_items],
+        "Valor":     [v for k, v in dim_items],
+    })
 
     # ----------------------------------------------------------
     # RELLENO
