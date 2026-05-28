@@ -1,31 +1,23 @@
 import streamlit as st
 import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib.patches import Rectangle, Circle, RegularPolygon
+import plotly.graph_objects as go
 
 # =========================================================
 # CONFIGURACIÓN
 # =========================================================
 
 st.set_page_config(
-    page_title="Diseño Inteligente de Panel Resonante",
+    page_title="Diseño de Panel Resonante",
     page_icon="🔊",
     layout="centered"
 )
 
 st.title("🔊 Diseño Inteligente de Panel Resonante")
-st.markdown("""
-Este sistema analiza los modos propios del recinto y diseña
-un panel resonante optimizado según:
-
-- Frecuencia modal crítica
-- Tipo de modo
-- Geometría del panel
-- Material del panel
-- Profundidad de cavidad
-- Uso de relleno absorbente
-- Ubicación recomendada
-""")
+st.markdown(
+    "Analiza los modos propios del recinto y diseña un panel resonante "
+    "optimizado según la frecuencia modal crítica, tipo de modo, material, "
+    "geometría, profundidad de cavidad y relleno absorbente."
+)
 
 # =========================================================
 # DATOS DEL RECINTO
@@ -36,56 +28,51 @@ st.header("📐 Dimensiones del recinto")
 col1, col2, col3 = st.columns(3)
 
 with col1:
-    Lx = st.number_input(
-        "Largo (m)",
-        min_value=1.0,
-        max_value=30.0,
-        value=5.0,
-        step=0.1
-    )
+    Lx = st.number_input("Largo (m)", min_value=1.0, max_value=30.0, value=5.0, step=0.1)
 
 with col2:
-    Ly = st.number_input(
-        "Ancho (m)",
-        min_value=1.0,
-        max_value=30.0,
-        value=4.0,
-        step=0.1
-    )
+    Ly = st.number_input("Ancho (m)", min_value=1.0, max_value=30.0, value=4.0, step=0.1)
 
 with col3:
-    Lz = st.number_input(
-        "Altura (m)",
-        min_value=1.0,
-        max_value=10.0,
-        value=2.8,
-        step=0.1
-    )
+    Lz = st.number_input("Altura (m)", min_value=1.0, max_value=10.0, value=2.8, step=0.1)
 
 # =========================================================
-# PARÁMETROS OPCIONALES
+# PARÁMETROS DE DISEÑO
 # =========================================================
 
 st.header("⚙️ Parámetros de diseño")
 
-usar_relleno = st.checkbox(
-    "Usar relleno absorbente (lana mineral)",
-    value=True
-)
+col1, col2 = st.columns(2)
 
-densidad_modos_usuario = st.slider(
-    "Sensibilidad a densidad modal",
-    1,
-    10,
-    5
-)
+with col1:
+    usar_relleno = st.checkbox("Usar relleno absorbente (lana mineral)", value=True)
+
+with col2:
+    sensibilidad = st.slider("Sensibilidad a densidad modal", 1, 10, 5)
 
 # =========================================================
-# FUNCIÓN MODOS
+# BASE DE MATERIALES
+# =========================================================
+
+MATERIALES = {
+    "MDF 3 mm":     {"masa": 2.1,  "costo": "Bajo",  "rigidez": "Media"},
+    "MDF 6 mm":     {"masa": 4.2,  "costo": "Bajo",  "rigidez": "Alta"},
+    "MDF 9 mm":     {"masa": 6.3,  "costo": "Medio", "rigidez": "Alta"},
+    "Triplex 4 mm": {"masa": 2.5,  "costo": "Medio", "rigidez": "Media"},
+    "Triplex 6 mm": {"masa": 3.8,  "costo": "Medio", "rigidez": "Media"},
+    "Drywall 12 mm":{"masa": 9.5,  "costo": "Bajo",  "rigidez": "Baja"},
+}
+
+# =========================================================
+# CÁLCULO DE MODOS DEL RECINTO
 # =========================================================
 
 def calcular_modos(Lx, Ly, Lz, c=343, n_max=5):
-
+    """
+    Calcula los modos propios de un recinto rectangular.
+    Fórmula: f = (c/2) * sqrt((nx/Lx)^2 + (ny/Ly)^2 + (nz/Lz)^2)
+    Clasifica en Axial, Tangencial u Oblicuo según cuántos índices son cero.
+    """
     modos = []
 
     for nx in range(n_max + 1):
@@ -95,22 +82,18 @@ def calcular_modos(Lx, Ly, Lz, c=343, n_max=5):
                 if nx == 0 and ny == 0 and nz == 0:
                     continue
 
-                f = (c/2) * np.sqrt(
-                    (nx/Lx)**2 +
-                    (ny/Ly)**2 +
-                    (nz/Lz)**2
+                f = (c / 2) * np.sqrt(
+                    (nx / Lx) ** 2 +
+                    (ny / Ly) ** 2 +
+                    (nz / Lz) ** 2
                 )
-
-                # Clasificación modal
 
                 ceros = [nx, ny, nz].count(0)
 
                 if ceros == 2:
                     tipo = "Axial"
-
                 elif ceros == 1:
                     tipo = "Tangencial"
-
                 else:
                     tipo = "Oblicuo"
 
@@ -123,395 +106,366 @@ def calcular_modos(Lx, Ly, Lz, c=343, n_max=5):
     return sorted(modos, key=lambda x: x["frecuencia"])
 
 # =========================================================
-# DISEÑO PANEL
+# DISEÑO DEL PANEL RESONANTE
 # =========================================================
 
 def disenar_panel(f_obj, usar_relleno):
+    """
+    Selecciona el mejor material para un panel resonante cuya
+    cavidad quede en rango práctico (4–18 cm).
 
-    materiales = {
-        "MDF 3 mm": 2.1,
-        "MDF 6 mm": 4.2,
-        "Triplex 4 mm": 2.5,
-        "Drywall": 8.5
-    }
+    Fórmula panel resonante:
+        fr = 60 / sqrt(m * d)
+        d  = (60 / f_obj)^2 / m    [metros]
 
-    mejor = None
-    error_min = 999
+    Se elige el material cuya profundidad de cavidad resultante
+    esté más cerca del valor óptimo práctico (~10 cm).
+    """
+    candidatos = []
 
-    for material, masa in materiales.items():
+    for nombre, props in MATERIALES.items():
+        masa = props["masa"]
+        d = (60.0 / f_obj) ** 2 / masa       # profundidad cavidad [m]
+        d_cm = d * 100
+        fr = 60.0 / np.sqrt(masa * d)        # ≈ f_obj por construcción
 
-        # Fórmula panel resonante
-        d = (60 / f_obj)**2 / masa
-
-        fr = 60 / np.sqrt(masa * d)
-
-        error = abs(fr - f_obj)
-
+        # Coeficiente de absorción: mejora con cavidad más profunda y relleno
         if usar_relleno:
-            absorcion = 0.85
+            coef_base = 0.75
         else:
-            absorcion = 0.65
+            coef_base = 0.50
 
-        if error < error_min:
+        coef_abs = round(min(coef_base + 0.12 * min(d_cm / 15.0, 1.0), 0.95), 2)
 
-            error_min = error
+        # Puntuación: cavidad óptima ~10 cm; penalizar extremos
+        score = abs(d_cm - 10.0)
+        valido = 4.0 <= d_cm <= 18.0
 
-            mejor = {
-                "material": material,
-                "masa": round(masa, 2),
-                "cavidad_cm": round(d * 100, 1),
-                "fr": round(fr, 2),
-                "absorcion": absorcion
-            }
+        candidatos.append({
+            "material": nombre,
+            "masa": round(masa, 2),
+            "cavidad_cm": round(d_cm, 1),
+            "fr": round(fr, 1),
+            "absorcion": coef_abs,
+            "costo": props["costo"],
+            "score": score,
+            "valido": valido,
+        })
 
-    return mejor
+    validos = [c for c in candidatos if c["valido"]]
+
+    # Si ningún material da cavidad válida, usar todos como fallback
+    if not validos:
+        validos = candidatos
+
+    return sorted(validos, key=lambda x: x["score"])[0]
 
 # =========================================================
-# GEOMETRÍA
+# GEOMETRÍA DEL PANEL
 # =========================================================
 
-def seleccionar_geometria(
-    tipo_modo,
-    frecuencia,
-    densidad_modos
-):
-
-    # Frecuencia muy puntual
+def seleccionar_geometria(tipo_modo, frecuencia, densidad_modos):
+    """
+    Reglas de selección de geometría:
+    - Frecuencia muy baja (<60 Hz): Circular (distribución suave de presión)
+    - Alta densidad modal (≥6):     Hexagonal (mayor cobertura angular)
+    - Modo axial:                   Rectangular (alineación con paredes)
+    - Resto:                        Cuadrado
+    """
     if frecuencia < 60:
         return "Circular"
-
-    # Mucha acumulación modal
-    elif densidad_modos >= 6:
+    elif densidad_modos >= sensibilidad:
         return "Hexagonal"
-
-    # Modos axiales
     elif tipo_modo == "Axial":
         return "Rectangular"
-
-    # Intermedio
     else:
         return "Cuadrado"
+
+# =========================================================
+# DIMENSIONES RECOMENDADAS
+# =========================================================
+
+def calcular_dimensiones(f_obj, geometria):
+    """
+    El tamaño mínimo efectivo de un panel resonante es λ/4
+    a la frecuencia objetivo.  Se aplica un factor de seguridad ×1.25.
+    """
+    c = 343.0
+    lambda_4 = (c / f_obj) / 4.0
+    dim_min = max(lambda_4 * 1.25, 0.30)    # mínimo 30 cm
+
+    if geometria == "Rectangular":
+        ancho = round(max(dim_min * 1.5, 0.60), 2)
+        alto  = round(max(dim_min,       0.40), 2)
+        area  = round(ancho * alto, 2)
+        return {
+            "tipo": "Rectangular",
+            "Ancho": f"{ancho} m",
+            "Alto":  f"{alto} m",
+            "Área":  f"{area} m²",
+        }
+
+    elif geometria == "Cuadrado":
+        lado = round(max(dim_min * 1.2, 0.50), 2)
+        area = round(lado ** 2, 2)
+        return {
+            "tipo": "Cuadrado",
+            "Lado": f"{lado} m",
+            "Área": f"{area} m²",
+        }
+
+    elif geometria == "Circular":
+        radio = round(max(dim_min * 0.8, 0.25), 2)
+        area  = round(np.pi * radio ** 2, 2)
+        return {
+            "tipo": "Circular",
+            "Radio": f"{radio} m",
+            "Diámetro": f"{round(radio*2, 2)} m",
+            "Área": f"{area} m²",
+        }
+
+    elif geometria == "Hexagonal":
+        lado = round(max(dim_min, 0.35), 2)
+        area = round(3 * np.sqrt(3) / 2 * lado ** 2, 2)
+        return {
+            "tipo": "Hexagonal",
+            "Lado": f"{lado} m",
+            "Área": f"{area} m²",
+        }
+
+    return {"tipo": geometria, "Área": f"{round(dim_min**2, 2)} m²"}
 
 # =========================================================
 # UBICACIÓN
 # =========================================================
 
 def sugerir_ubicacion(modo):
-
     nx, ny, nz = modo
 
+    # Modos axiales puros
+    if nx != 0 and ny == 0 and nz == 0:
+        return "Pared frontal y trasera (eje X)"
+    if ny != 0 and nx == 0 and nz == 0:
+        return "Paredes laterales (eje Y)"
+    if nz != 0 and nx == 0 and ny == 0:
+        return "Techo o piso (eje Z)"
+
+    # Modos tangenciales y oblicuos
     if nx != 0:
         return "Pared frontal y trasera"
-
-    elif ny != 0:
+    if ny != 0:
         return "Paredes laterales"
-
-    else:
-        return "Techo o piso"
+    return "Techo o piso"
 
 # =========================================================
-# VISUALIZACIÓN GEOMETRÍA
+# CANTIDAD DE PANELES
 # =========================================================
 
-def dibujar_geometria(forma):
-
-    fig, ax = plt.subplots(figsize=(4,4))
-
-    ax.set_xlim(0, 10)
-    ax.set_ylim(0, 10)
-
-    if forma == "Rectangular":
-
-        rect = Rectangle(
-            (2, 3),
-            6,
-            4,
-            fill=False,
-            linewidth=3
-        )
-
-        ax.add_patch(rect)
-
-    elif forma == "Cuadrado":
-
-        rect = Rectangle(
-            (3, 3),
-            4,
-            4,
-            fill=False,
-            linewidth=3
-        )
-
-        ax.add_patch(rect)
-
-    elif forma == "Circular":
-
-        circ = Circle(
-            (5,5),
-            2.5,
-            fill=False,
-            linewidth=3
-        )
-
-        ax.add_patch(circ)
-
-    elif forma == "Hexagonal":
-
-        hexag = RegularPolygon(
-            (5,5),
-            numVertices=6,
-            radius=3,
-            fill=False,
-            linewidth=3
-        )
-
-        ax.add_patch(hexag)
-
-    ax.set_aspect("equal")
-    ax.axis("off")
-
-    return fig
+def cantidad_paneles(Lx, Ly, Lz, densidad):
+    """
+    Estimación basada en volumen del recinto y densidad modal.
+    Regla práctica: 1 panel por cada ~15–20 m³, mínimo 2.
+    """
+    vol  = Lx * Ly * Lz
+    base = max(2, int(vol / 18))
+    if densidad >= sensibilidad:
+        base += 2
+    return base
 
 # =========================================================
 # BOTÓN PRINCIPAL
 # =========================================================
 
-if st.button("🔍 Analizar recinto", type="primary"):
+if st.button("🔍 Analizar recinto y diseñar panel", type="primary"):
 
-    modos = calcular_modos(Lx, Ly, Lz)
+    modos        = calcular_modos(Lx, Ly, Lz)
+    modos_bajos  = [m for m in modos if m["frecuencia"] <= 300]
+    modos_axiales= [m for m in modos_bajos if m["tipo"] == "Axial"]
 
-    # Filtrar bajas frecuencias
-    modos_bajos = [
-        m for m in modos
-        if m["frecuencia"] <= 300
-    ]
+    # Modo crítico: primer axial o primer modo si no hay axiales
+    modo_critico      = modos_axiales[0] if modos_axiales else modos_bajos[0]
+    frecuencia_critica= modo_critico["frecuencia"]
 
-    # Separar axiales
-    modos_axiales = [
-        m for m in modos_bajos
-        if m["tipo"] == "Axial"
-    ]
-
-    # Escoger modo crítico
-    if len(modos_axiales) > 0:
-        modo_critico = modos_axiales[0]
-    else:
-        modo_critico = modos_bajos[0]
-
-    frecuencia_critica = modo_critico["frecuencia"]
-
-    # =====================================================
-    # DENSIDAD MODAL
-    # =====================================================
-
-    ancho = 20
-
+    # Densidad modal local ±20 Hz
     densidad = len([
         m for m in modos_bajos
-        if abs(m["frecuencia"] - frecuencia_critica) < ancho
+        if abs(m["frecuencia"] - frecuencia_critica) < 20
     ])
 
-    # =====================================================
-    # PANEL
-    # =====================================================
+    panel    = disenar_panel(frecuencia_critica, usar_relleno)
+    geometria= seleccionar_geometria(modo_critico["tipo"], frecuencia_critica, densidad)
+    dims     = calcular_dimensiones(frecuencia_critica, geometria)
+    ubicacion= sugerir_ubicacion(modo_critico["modo"])
+    n_pan    = cantidad_paneles(Lx, Ly, Lz, densidad)
 
-    panel = disenar_panel(
-        frecuencia_critica,
-        usar_relleno
+    # ==========================================================
+    # RESULTADOS — ANÁLISIS MODAL
+    # ==========================================================
+
+    st.header("📊 Análisis modal del recinto")
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Frecuencia crítica",   f"{frecuencia_critica} Hz")
+    c2.metric("Tipo de modo",         modo_critico["tipo"])
+    c3.metric("Densidad modal local", f"{densidad} modos")
+
+    st.caption(
+        f"Modo: {modo_critico['modo']} · "
+        f"Total modos ≤ 300 Hz: {len(modos_bajos)} "
+        f"({len(modos_axiales)} axiales)"
     )
 
-    # =====================================================
-    # GEOMETRÍA
-    # =====================================================
+    # --- Gráfica modal con Plotly (sin matplotlib) ---
+    colores_tipo = {
+        "Axial":       "#e74c3c",
+        "Tangencial":  "#3498db",
+        "Oblicuo":     "#2ecc71",
+    }
 
-    geometria = seleccionar_geometria(
-        modo_critico["tipo"],
-        frecuencia_critica,
-        densidad
+    fig = go.Figure()
+    leyendas_vistas = set()
+
+    for m in modos_bajos:
+        t     = m["tipo"]
+        color = colores_tipo[t]
+        mostrar_leyenda = t not in leyendas_vistas
+        leyendas_vistas.add(t)
+
+        fig.add_trace(go.Scatter(
+            x=[m["frecuencia"], m["frecuencia"]],
+            y=[0, 1],
+            mode="lines",
+            line=dict(color=color, width=2),
+            name=t,
+            showlegend=mostrar_leyenda,
+            legendgroup=t,
+        ))
+
+    fig.add_vline(
+        x=frecuencia_critica,
+        line_dash="dash",
+        line_color="orange",
+        line_width=2,
+        annotation_text=f"  Crítico: {frecuencia_critica} Hz",
+        annotation_font_color="orange",
     )
 
-    # =====================================================
-    # UBICACIÓN
-    # =====================================================
-
-    ubicacion = sugerir_ubicacion(
-        modo_critico["modo"]
+    fig.update_layout(
+        title="Distribución de modos propios (≤ 300 Hz)",
+        xaxis_title="Frecuencia (Hz)",
+        yaxis=dict(showticklabels=False, range=[0, 1.3], title=""),
+        height=260,
+        margin=dict(t=45, b=40, l=20, r=20),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
     )
 
-    # =====================================================
-    # RESULTADOS
-    # =====================================================
+    st.plotly_chart(fig, use_container_width=True)
 
-    st.header("📊 Análisis modal")
-
-    st.write(f"### Frecuencia crítica: {frecuencia_critica} Hz")
-    st.write(f"### Tipo modal: {modo_critico['tipo']}")
-    st.write(f"### Modo: {modo_critico['modo']}")
-    st.write(f"### Densidad modal local: {densidad}")
-
-    # =====================================================
-    # GRÁFICA MODAL
-    # =====================================================
-
-    st.subheader("📈 Modos del recinto")
-
-    fig, ax = plt.subplots(figsize=(9,3))
-
-    frecuencias = [
-        m["frecuencia"]
-        for m in modos_bajos
-    ]
-
-    ax.stem(
-        frecuencias,
-        np.ones(len(frecuencias)),
-        linefmt="steelblue",
-        markerfmt="o",
-        basefmt=" "
-    )
-
-    ax.axvline(
-        frecuencia_critica,
-        color="red",
-        linestyle="--",
-        label="Modo crítico"
-    )
-
-    ax.set_xlabel("Frecuencia (Hz)")
-    ax.set_yticks([])
-    ax.grid(True, axis="x", alpha=0.3)
-    ax.legend()
-
-    st.pyplot(fig)
-
-    # =====================================================
-    # PANEL
-    # =====================================================
+    # ==========================================================
+    # DISEÑO DEL PANEL
+    # ==========================================================
 
     st.header("🛠️ Diseño del panel resonante")
 
-    col1, col2 = st.columns(2)
+    c1, c2, c3 = st.columns(3)
 
-    with col1:
+    with c1:
+        st.metric("Material",          panel["material"])
+        st.metric("Masa superficial",  f"{panel['masa']} kg/m²")
+        st.metric("Costo relativo",    panel["costo"])
 
-        st.metric(
-            "Material",
-            panel["material"]
-        )
+    with c2:
+        st.metric("Frecuencia de resonancia", f"{panel['fr']} Hz")
+        st.metric("Profundidad de cavidad",   f"{panel['cavidad_cm']} cm")
+        st.metric("Coef. de absorción",       panel["absorcion"])
 
-        st.metric(
-            "Masa superficial",
-            f"{panel['masa']} kg/m²"
-        )
+    with c3:
+        st.metric("Geometría",              dims["tipo"])
+        st.metric("Paneles recomendados",   f"{n_pan} unidades")
+        st.metric("Ubicación",              ubicacion)
 
-        st.metric(
-            "Coeficiente absorción",
-            panel["absorcion"]
-        )
+    # ==========================================================
+    # DIMENSIONES DEL PANEL
+    # ==========================================================
 
-    with col2:
+    st.subheader("📏 Dimensiones del panel")
 
-        st.metric(
-            "Frecuencia resonancia",
-            f"{panel['fr']} Hz"
-        )
+    dim_items = [(k, v) for k, v in dims.items() if k != "tipo"]
+    dcols = st.columns(len(dim_items))
 
-        st.metric(
-            "Profundidad cavidad",
-            f"{panel['cavidad_cm']} cm"
-        )
+    for i, (label, valor) in enumerate(dim_items):
+        dcols[i].metric(label, valor)
 
-        st.metric(
-            "Geometría",
-            geometria
-        )
-
-    # =====================================================
+    # ==========================================================
     # RELLENO
-    # =====================================================
+    # ==========================================================
 
     st.header("🧵 Configuración interna")
 
+    mitad_cav = round(panel["cavidad_cm"] * 0.5, 1)
+
     if usar_relleno:
-
-        st.success("""
-        ✔ Se recomienda usar lana mineral o lana de roca.
-
-        Beneficios:
-        - Mayor amortiguamiento
-        - Absorción más amplia
-        - Menos resonancia secundaria
-        """)
-
+        st.success(
+            f"✔ **Lana mineral o lana de roca** recomendada.\n\n"
+            f"- Espesor sugerido: **{mitad_cav} cm** "
+            f"(mitad de la cavidad de {panel['cavidad_cm']} cm).\n"
+            "- Mayor amortiguamiento y banda de absorción más ancha.\n"
+            "- Reduce resonancias secundarias del panel."
+        )
     else:
+        st.warning(
+            "⚠ **Panel resonante puro** (sin relleno).\n\n"
+            "- Absorción muy selectiva en banda estrecha.\n"
+            "- Resonancia más pronunciada y pronunciado roll-off fuera de la frecuencia objetivo.\n"
+            "- Recomendado solo si la frecuencia problema es muy específica."
+        )
 
-        st.warning("""
-        ⚠ Panel resonante puro.
-
-        Características:
-        - Absorción muy selectiva
-        - Banda estrecha
-        - Resonancia más fuerte
-        """)
-
-    # =====================================================
+    # ==========================================================
     # UBICACIÓN
-    # =====================================================
+    # ==========================================================
 
     st.header("📍 Ubicación recomendada")
 
-    st.info(f"Instalar principalmente en: {ubicacion}")
+    st.info(
+        f"**Superficie principal:** {ubicacion}\n\n"
+        f"Distribuir los **{n_pan} paneles** simétricamente respecto al eje de la sala. "
+        "Evitar esquinas si hay trampas de graves dedicadas en esas posiciones."
+    )
 
-    # =====================================================
-    # VISUALIZACIÓN PANEL
-    # =====================================================
-
-    st.header("📐 Geometría sugerida")
-
-    fig_geo = dibujar_geometria(geometria)
-
-    st.pyplot(fig_geo)
-
-    # =====================================================
-    # INTERPRETACIÓN
-    # =====================================================
+    # ==========================================================
+    # INTERPRETACIÓN ACÚSTICA
+    # ==========================================================
 
     st.header("📋 Interpretación acústica")
 
     if frecuencia_critica < 60:
-
-        st.write("""
-        El recinto presenta problemas severos de bajas frecuencias.
-        Se recomienda un panel con alta masa y gran cavidad.
-        """)
-
+        st.write(
+            "El recinto presenta **problemas severos de bajas frecuencias** (< 60 Hz). "
+            "Se recomienda alta masa superficial y cavidad profunda. "
+            "Considerar complementar con trampas de graves tipo esquina."
+        )
     elif frecuencia_critica < 120:
-
-        st.write("""
-        El problema modal se encuentra en graves medios.
-        Un panel resonante amortiguado puede controlar
-        adecuadamente la resonancia.
-        """)
-
+        st.write(
+            "El problema modal se encuentra en **graves medios (60–120 Hz)**. "
+            "Un panel resonante con relleno absorbente controla bien esta zona "
+            "sin comprometer excesivamente el tiempo de reverberación global."
+        )
     else:
-
-        st.write("""
-        El recinto presenta resonancias moderadas.
-        El panel diseñado ayudará a suavizar acumulaciones
-        energéticas.
-        """)
+        st.write(
+            "El recinto presenta **resonancias moderadas (> 120 Hz)**. "
+            "El panel diseñado suavizará acumulaciones energéticas en la zona media. "
+            "Evaluar también difusores en las superficies paralelas opuestas."
+        )
 
     st.markdown("---")
 
-    st.subheader("🧠 Explicación física")
+    st.subheader("🧠 Principio físico")
 
-    st.markdown("""
-    El panel resonante funciona como un sistema masa-resorte:
-
-    - La madera aporta la masa.
-    - La cavidad de aire actúa como resorte.
-    - El relleno aporta amortiguamiento.
-
-    El sistema entra en resonancia cerca de la frecuencia
-    modal crítica del recinto y absorbe energía acústica.
-    """)
+    st.markdown(
+        "El panel resonante opera como un **sistema masa–resorte**:\n\n"
+        "- La lámina de madera aporta la **masa** inercial.\n"
+        "- La cavidad de aire actúa como **resorte** elástico (compresibilidad del aire).\n"
+        "- El relleno de lana introduce **amortiguamiento** viscoso.\n\n"
+        "El sistema entra en resonancia cerca de la frecuencia modal crítica y convierte "
+        "energía acústica en calor, reduciendo la acumulación de presión en esa frecuencia."
+    )
